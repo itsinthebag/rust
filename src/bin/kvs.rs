@@ -21,17 +21,20 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
-    let mut db = KvStore::new();
+    // let mut db = KvStore::new();
 
     match &cli.command {
         Commands::Get { key } => {
-            db.get(&key);
+            eprintln!("unimplemented");
+            std::process::exit(1);
         }
         Commands::Set { key, value} => {
-            db.set(key.to_owned(), value.to_owned());
+            eprintln!("unimplemented");
+            std::process::exit(1);
         }        
         Commands::Rm { key } => {
-            db.remove(&key);
+            eprintln!("unimplemented");
+            std::process::exit(1);
         }                
     }
 }
