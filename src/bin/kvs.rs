@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use kvs::KvStore;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -15,23 +14,25 @@ enum Commands {
     /// set key and value
     Set { key: String, value: String },
     /// remove key and value
-    Rm { key: String }, 
+    Rm { key: String },
 }
-
 
 fn main() {
     let cli = Cli::parse();
-    let mut db = KvStore::new();
+    // let mut db = KvStore::new();
 
     match &cli.command {
-        Commands::Get { key } => {
-            db.get(&key);
+        Commands::Get { key: _ } => {
+            eprintln!("unimplemented");
+            std::process::exit(1);
         }
-        Commands::Set { key, value} => {
-            db.set(key.to_owned(), value.to_owned());
-        }        
-        Commands::Rm { key } => {
-            db.remove(&key);
-        }                
+        Commands::Set { key: _, value: _ } => {
+            eprintln!("unimplemented");
+            std::process::exit(1);
+        }
+        Commands::Rm { key: _ } => {
+            eprintln!("unimplemented");
+            std::process::exit(1);
+        }
     }
 }
