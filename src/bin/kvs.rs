@@ -1,4 +1,8 @@
+use std::env::current_dir;
+
 use clap::{Parser, Subcommand};
+use kvs::KvStore;
+use kvs::Result;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -17,22 +21,21 @@ enum Commands {
     Rm { key: String },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
-    // let mut db = KvStore::new();
 
     match &cli.command {
-        Commands::Get { key: _ } => {
-            eprintln!("unimplemented");
-            std::process::exit(1);
+        Commands::Get { key } => {
+            let key = key.to_owned().as_str();
+            let store = KvStore::open(current_dir()?)?;
+            
         }
         Commands::Set { key: _, value: _ } => {
             eprintln!("unimplemented");
             std::process::exit(1);
         }
         Commands::Rm { key: _ } => {
-            eprintln!("unimplemented");
-            std::process::exit(1);
+
         }
     }
 }
