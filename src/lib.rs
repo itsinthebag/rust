@@ -1,27 +1,8 @@
+mod error;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::result;
-use thiserror::Error;
-use std::io;
-
-pub type Result<T> = result::Result<T, KvsError>;
-
-#[derive(Debug, Error)]
-pub enum KvsError{
-   /// IO error.
-   #[error("IO failure: {0}")]
-   Io(#[from] io::Error),
-   /// Serialization or deserialization error.
-   #[error("serde failure: {0}")]
-   Serde(#[from] serde_json::Error),
-   /// Removing non-existent key error.
-   #[error("Key not found")]
-   KeyNotFound,
-   /// Unexpected command type error.
-   /// It indicated a corrupted log or a program bug.
-   #[error("Unexpected command type")]
-   UnexpectedCommandType,
-}
+pub use error::{KvsError, Result};
 
 #[derive(Default)]
 pub struct KvStore {
@@ -43,16 +24,16 @@ impl KvStore {
     pub fn get(&self, key: String) -> Result<Option<String>> {
         let res = self.map.get(&key);
         if res == None {
-            return Err(Box::new(MyError{err: String::from("map doesn't contain the key")}));
+            return Err(KvsError::KeyNotFound);
         }
         Ok(Some(res.unwrap().to_owned()))
     }
 
     pub fn remove(&mut self, key: String) -> Result<String> {
-        self.map.remove(&key).ok_or(Box::new(MyError{err: String::from("can't remove from map")}))
+        self.map.remove(&key).ok_or(KvsError::KeyNotFound)
     }
 
-    pub fn open(_: PathBuf) -> Result<KvStore> {
+    pub fn open(_: impl Into<PathBuf>) -> Result<KvStore> {
         Ok(KvStore::new())
     }
 }
