@@ -18,7 +18,7 @@ impl KvStore {
 
     pub fn set(&mut self, key: String, value: String) -> Result<String> {
         let tmp = self.map.insert(key, value);
-        Ok(tmp.map(|c| c).unwrap_or_default())
+        Ok(tmp.unwrap_or_default())
     }
 
     pub fn get(&self, key: String) -> Result<Option<String>> {
