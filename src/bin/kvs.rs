@@ -1,4 +1,4 @@
-use clap::{App, Arg, SubCommand};
+use clap::{App, AppSettings, Arg, SubCommand};
 use kvs::KvStore;
 use kvs::KvsError;
 use kvs::Result;
@@ -6,7 +6,13 @@ use std::env::current_dir;
 use std::process::exit;
 
 fn main() -> Result<()> {
-    let matches = App::new("kv store")
+    let matches = App::new(env!("CARGO_PKG_NAME"))
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
+        .about(env!("CARGO_PKG_DESCRIPTION"))
+        .setting(AppSettings::DisableHelpSubcommand)
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .setting(AppSettings::VersionlessSubcommands)
         .subcommand(
             SubCommand::with_name("set")
                 .about("Set the value of a string key to a string")
@@ -43,19 +49,19 @@ fn main() -> Result<()> {
                 println!("{}", value);
             } else {
                 print!("key not found");
-            };
+            }
         }
         ("rm", Some(matches)) => {
             let key = matches.value_of("KEY").unwrap();
             let mut store = KvStore::open(current_dir()?)?;
             match store.remove(key.to_owned()) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(KvsError::KeyNotFound) => {
                     println!("key not found");
                     exit(1);
-                },
-                Err(e) => {return Err(e)},
-            };
+                }
+                Err(e) => return Err(e),
+            }
         }
         _ => unreachable!(),
     }
