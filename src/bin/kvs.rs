@@ -40,15 +40,15 @@ fn main() -> Result<()> {
             let key = matches.value_of("KEY").unwrap();
             let value = matches.value_of("VALUE").unwrap();
             let mut store = KvStore::open(current_dir()?)?;
-            store.set(key.to_owned(), value.to_owned())?;
+            store.set(key.to_string(), value.to_string())?;
         }
         ("get", Some(matches)) => {
             let key = matches.value_of("KEY").unwrap();
             let store = KvStore::open(current_dir()?)?;
-            if let Some(value) = store.get(key.to_owned())? {
+            if let Some(value) = store.get(key.to_string())? {
                 println!("{}", value);
             } else {
-                print!("key not found");
+                println!("key not found");
             }
         }
         ("rm", Some(matches)) => {

@@ -22,10 +22,10 @@ impl KvStore {
     }
 
     pub fn get(&self, key: String) -> Result<Option<String>> {
-        if let Command::Set { value, .. } = &*self.map.get(&key).unwrap() {
+        if let Some(Command::Set { value, .. }) = self.map.get(&key) {
             Ok(Some(value.to_string()))
         } else {
-            Err(KvsError::KeyNotFound)
+            Ok(None)
         }
     }
 
