@@ -2,8 +2,10 @@ use std::io;
 use std::result;
 use thiserror::Error;
 
+/// Result type for kvs.
 pub type Result<T> = result::Result<T, KvsError>;
 
+/// Error type for kvs.
 #[derive(Debug, Error)]
 pub enum KvsError {
     /// IO error.

@@ -299,3 +299,10 @@ fn compaction() -> Result<()> {
 
     panic!("No compaction detected");
 }
+
+#[test]
+fn open_file() {
+    let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+
+    KvStore::open(temp_dir.path());
+}

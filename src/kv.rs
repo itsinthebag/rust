@@ -1,15 +1,19 @@
 use std::collections::{BTreeMap, HashMap};
-use std::fs::{create_dir_all, File, OpenOptions, read, read_to_string};
+use std::ffi::OsStr;
+use std::fs;
+use std::fs::{create_dir_all, File, OpenOptions, read, read_dir, read_to_string};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::ops::Range;
+use std::path::{Path, PathBuf};
 use serde::{Serialize, Deserialize};
+use serde_json::Deserializer;
 use crate::{KvsError, Result};
 
 /// kv store: myDB
 pub struct KvStore {
     path: PathBuf,
     // gen number to log file reader
-    reader: HashMap<u64, BuffReaderWithPos<File>>,
+    readers: HashMap<u64, BuffReaderWithPos<File>>,
     // writer of the current log file
     writer: BuffWriterWithPos<File>,
     index: BTreeMap<String, CommandPos>,
@@ -18,28 +22,124 @@ pub struct KvStore {
 }
 
 impl KvStore {
+    /// open directory [path]
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
-        todo!()
+        let path = path.into();
+        create_dir_all(&path);
+        let gen_list = sorted_gen_list(&path)?;
+        let mut readers: HashMap<u64, BuffReaderWithPos<File>> = HashMap::new();
+        let mut uncompacted = 0u64;
+        let mut index: BTreeMap<String, CommandPos> = BTreeMap::new();
+
+        for &gen in &gen_list {
+            let mut reader = BuffReaderWithPos::new(File::open(log_file_path(&path, gen))?)?;
+            uncompacted += load_log_file(gen, &mut reader, &mut index)?;
+            readers.insert(gen, reader);
+        }
+
+        let current_gen = gen_list.last().unwrap_or(&0) + 1;
+        let writer = new_log_file(&path, current_gen, &mut readers)?;
+
+        Ok(KvStore{
+            path,
+            readers,
+            writer,
+            index,
+            current_gen,
+            uncompacted,
+        })
     }
+
+    /// set k/v pair
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         todo!()
     }
 
+    /// retrieve value from key
     pub fn get(&self, key: String) -> Result<Option<String>> {
         todo!()
     }
 
+    /// remove k/v pair
     pub fn remove(&mut self, key: String) -> Result<()> {
         todo!()
     }
 
+    /// release set or removed entry
     pub fn compact() -> Result<()> {
         todo!()
     }
 
+    /// Create a new log file with given generation number and add the reader to the readers map.
+    ///
+    /// Returns the writer to the log.
     pub fn new_log_file(&mut self, gen: u64) -> Result<()> {
         todo!()
     }
+}
+
+/// Create a new log file with given generation number and add the reader to the readers map.
+///
+/// Returns the writer to the log.
+fn new_log_file(path: &PathBuf, gen: u64, readers: &mut HashMap<u64, BuffReaderWithPos<File>>) -> Result<BuffWriterWithPos<File>> {
+    let path = log_file_path(path, gen);
+    let writer = BuffWriterWithPos::new(
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(&path)?,
+    );
+
+    readers.insert(gen, BuffReaderWithPos::new(File::open(path)?)?);
+    writer
+}
+
+/// load single log file, store values location in index map and return uncompatted bytes
+fn load_log_file(gen: u64, reader: &mut BuffReaderWithPos<File>, index: &mut BTreeMap<String, CommandPos>) -> Result<u64> {
+    let mut pos = reader.seek(SeekFrom::Start(0))?;
+    let mut uncompacted = 0u64;
+    let mut stream = Deserializer::from_reader(reader).into_iter::<Command>();
+    while let Some(cmd) = stream.next() {
+        let new_pos = stream.byte_offset() as u64;
+        match cmd? {
+            Command::Set {key, ..} => {
+                if let Some(old_cmd) = index.insert(key, (gen, pos..new_pos).into()) {
+                    uncompacted += old_cmd.len;
+                }
+            }
+
+            Command::Remove {key, ..} => {
+                if let Some(old_cmd) = index.remove(&key) {
+                    uncompacted += old_cmd.len;
+                }
+            }
+        }
+        pos = new_pos;
+    }
+
+    Ok(uncompacted)
+}
+
+fn log_file_path(dir: &Path, gen: u64) -> PathBuf {
+    dir.join(format!("{}.log", gen))
+}
+
+/// create sorted list of generated log file number
+fn sorted_gen_list(path: &PathBuf) -> Result<Vec<u64>> {
+    let mut gen_list: Vec<u64> = read_dir(&path)?
+        .flat_map(|it| -> Result<_> { Ok(it?.path())})
+        .filter(|path| path.is_file() && path.extension() == Some("log".as_ref()))
+        .flat_map(|path| {
+            path.file_name()
+                .and_then(OsStr::to_str)
+                .map(|s| s.trim_end_matches(".log"))
+                .map(str::parse::<u64>)
+        })
+        .flatten()
+        .collect();
+    gen_list.sort_unstable();
+    Ok(gen_list)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -113,8 +213,19 @@ impl<W: Write + Seek> Seek for BuffWriterWithPos<W> {
     }
 }
 
+// represent position and length of json-serialized command in log file
 struct CommandPos {
     gen: u64, // log file number
     pos: u64, // seek position in log file
     len: u64, // length to read after seek position
+}
+
+impl From<(u64, Range<u64>)> for CommandPos {
+    fn from((gen, range): (u64, Range<u64>)) -> Self {
+        CommandPos {
+            gen,
+            pos: range.start,
+            len: range.end - range.start,
+        }
+    }
 }
