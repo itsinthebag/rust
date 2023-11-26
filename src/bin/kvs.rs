@@ -44,11 +44,11 @@ fn main() -> Result<()> {
         }
         ("get", Some(matches)) => {
             let key = matches.value_of("KEY").unwrap();
-            let store = KvStore::open(current_dir()?)?;
+            let mut store = KvStore::open(current_dir()?)?;
             if let Some(value) = store.get(key.to_string())? {
                 println!("{}", value);
             } else {
-                println!("key not found");
+                println!("Key not found");
             }
         }
         ("rm", Some(matches)) => {
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
             match store.remove(key.to_owned()) {
                 Ok(_) => {}
                 Err(KvsError::KeyNotFound) => {
-                    println!("key not found");
+                    println!("Key not found");
                     exit(1);
                 }
                 Err(e) => return Err(e),

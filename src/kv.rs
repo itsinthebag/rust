@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
-use std::fs;
+use std::{fs, io};
 use std::fs::{create_dir_all, File, OpenOptions, read, read_dir, read_to_string};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::{Serialize, Deserialize};
 use serde_json::Deserializer;
 use crate::{KvsError, Result};
+
+const COMPACTION_THRESHOLD: u64 = 1024 * 1024;
 
 /// kv store: myDB
 pub struct KvStore {
@@ -25,7 +27,7 @@ impl KvStore {
     /// open directory [path]
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
         let path = path.into();
-        create_dir_all(&path);
+        create_dir_all(&path)?;
         let gen_list = sorted_gen_list(&path)?;
         let mut readers: HashMap<u64, BuffReaderWithPos<File>> = HashMap::new();
         let mut uncompacted = 0u64;
@@ -52,29 +54,95 @@ impl KvStore {
 
     /// set k/v pair
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        todo!()
+        let cmd = Command::Set {key, value};
+        let pos = self.writer.pos;
+        serde_json::to_writer(&mut self.writer, &cmd)?;
+        self.writer.flush()?;
+
+        if let Command::Set {key, ..} = cmd {
+            if let Some(old_cmd) = self
+                .index
+                .insert(key, (self.current_gen, pos..self.writer.pos).into()) {
+                self.uncompacted += old_cmd.len;
+            }
+        }
+
+        if self.uncompacted > COMPACTION_THRESHOLD {
+            self.compact()?;
+        }
+
+        Ok(())
     }
 
     /// retrieve value from key
-    pub fn get(&self, key: String) -> Result<Option<String>> {
-        todo!()
+    pub fn get(&mut self, key: String) -> Result<Option<String>> {
+        if let Some(cmd_pos) = self.index.get(&key) {
+            let reader = self.readers.get_mut(&cmd_pos.gen).expect("Can not find log reader");
+            reader.seek(SeekFrom::Start(cmd_pos.pos))?;
+            let content = reader.take(cmd_pos.len);
+            if let Command::Set {value, ..} = serde_json::from_reader(content)? {
+                Ok(Some(value))
+            } else {
+                Err(KvsError::UnexpectedCommandType)
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     /// remove k/v pair
     pub fn remove(&mut self, key: String) -> Result<()> {
-        todo!()
+        if self.index.contains_key(&key) {
+            let cmd = Command::Remove {key};
+            serde_json::to_writer(&mut self.writer, &cmd)?;
+
+            if let Command::Remove {key} = cmd {
+               let old_cmd = self.index.remove(&key).expect("Key does not exist");
+                self.uncompacted += old_cmd.len;
+            }
+            Ok(())
+        } else {
+            Err(KvsError::KeyNotFound)
+        }
     }
 
-    /// release set or removed entry
-    pub fn compact() -> Result<()> {
-        todo!()
+    /// release reset entry
+    pub fn compact(&mut self) -> Result<()> {
+        self.writer = self.new_log_file(self.current_gen + 2)?;
+        let compact_gen = self.current_gen + 1;
+        let mut compact_writer= self.new_log_file(compact_gen)?;
+        self.current_gen += 2;
+
+        // copy from old file to new file
+        let mut compact_pos = 0u64;
+        for cmd_pos in self.index.values_mut() {
+            let reader = self.readers.get_mut(&cmd_pos.gen).expect("log file reader does not exist");
+            if reader.pos != cmd_pos.pos {
+                reader.seek(SeekFrom::Start(cmd_pos.pos))?;
+            }
+            let mut reader_take = reader.take(cmd_pos.len);
+            let len = io::copy(&mut reader_take, &mut compact_writer)?;
+            *cmd_pos = (compact_gen, (compact_pos..compact_pos+len)).into();
+            compact_pos += len;
+        }
+        compact_writer.flush()?;
+
+        let stale_gen: Vec<u64> = self.readers.keys().filter(|it| **it < compact_gen).cloned().collect();
+        // remove stale files and entry
+        for gen in stale_gen {
+            self.readers.remove(&gen);
+            fs::remove_file(log_file_path(&self.path, gen))?;
+        }
+
+        self.uncompacted = 0;
+        Ok(())
     }
 
     /// Create a new log file with given generation number and add the reader to the readers map.
     ///
     /// Returns the writer to the log.
-    pub fn new_log_file(&mut self, gen: u64) -> Result<()> {
-        todo!()
+    fn new_log_file(&mut self, gen: u64) -> Result<BuffWriterWithPos<File>> {
+        new_log_file(&self.path, gen, &mut self.readers)
     }
 }
 
@@ -174,7 +242,7 @@ impl<R: Read + Seek> Read for BuffReaderWithPos<R> {
 
 impl<R: Read + Seek> Seek for BuffReaderWithPos<R> {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.pos = self.seek(pos)?;
+        self.pos = self.reader.seek(pos)?;
         Ok(self.pos)
     }
 }
